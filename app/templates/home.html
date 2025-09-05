@@ -1,4 +1,4 @@
-<!doctype html>
+<!-- <!doctype html>
 <html>
   <head>
     <meta charset="utf-8"/>
@@ -69,5 +69,20 @@
 
       <footer>Times shown in America/Toronto.</footer>
     </main>
+  </body>
+</html>
+ -->
+
+ <!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>QuickSet</title></head>
+  <body>
+    <h1>QuickSet</h1>
+    <p>Selected: {{ selected }}</p>
+    {% if rows and rows|length > 0 %}
+      <ul>{% for r in rows %}<li>{{ r }}</li>{% endfor %}</ul>
+    {% else %}
+      <p>No rows yet.</p>
+    {% endif %}
   </body>
 </html>
