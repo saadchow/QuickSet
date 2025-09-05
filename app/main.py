@@ -15,89 +15,36 @@ from .db import get_engine, insert_or_ignore
 
 app = FastAPI(title="QuickSet")
 
-# Directories (override via env if you want)
+# Paths
 TEMPLATES_DIR = os.getenv("TEMPLATES_DIR", "app/templates")
 STATIC_DIR = os.getenv("STATIC_DIR", "app/static")
 
-# Mount /static if the folder exists (optional)
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-templates = Jinja2Templates(directory=os.getenv("TEMPLATES_DIR", "app/templates"))
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# Timezone (Render env var keys you showed)
-TZ = os.getenv("APP__TORONTO_TZ") or os.getenv("TZ") or "America/Toronto"
+# Proper tzinfo object (NOT a plain string)
+TZ = ZoneInfo(os.getenv("APP__TORONTO_TZ", "America/Toronto"))
 
-def _resolve_day(day: str) -> date:
-    day = (day or "today").lower()
+def _resolve_day(day: str | None) -> date:
+    day = (day or "today").lower().strip()
     today = date.today()
     if day in ("", "today"):
         return today
     if day == "tomorrow":
         return today + timedelta(days=1)
-    return date.fromisoformat(day)
+    if day == "yesterday":
+        return today - timedelta(days=1)
+    return date.fromisoformat(day)  # YYYY-MM-DD
 
 @app.get("/health", include_in_schema=True)
-async def health():
+def health():
     return {"status": "ok"}
 
 @app.get("/__routes__", include_in_schema=True)
 def routes():
     return [getattr(r, "path", None) for r in app.router.routes]
-
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request, day: str = Query(default="today")):
-    selected = _resolve_day(day)
-    return templates.TemplateResponse(
-        "home.html",
-        {"request": request, "selected": selected.isoformat(), "rows": []},
-    )
-
-def _determine_day_param(day: str | None) -> date:
-    """
-    Accepts: today | tomorrow | yesterday | YYYY-MM-DD
-    Defaults to 'today' if invalid or missing.
-    """
-    day = (day or "today").lower()
-    now = datetime.now(ZoneInfo(TZ)).date()
-    if day == "today":
-        return now
-    if day == "tomorrow":
-        return date.fromordinal(now.toordinal() + 1)
-    if day == "yesterday":
-        return date.fromordinal(now.toordinal() - 1)
-    try:
-        return date.fromisoformat(day)
-    except ValueError:
-        return now
-
-
-@app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def homepage(request: Request, day: str | None = Query(default=None)):
-    selected = _determine_day_param(day)
-
-    # TODO: Replace with your real data (DB/query/etc.)
-    sample_rows = [
-        {"time": "09:00", "title": "Example item A"},
-        {"time": "13:30", "title": "Example item B"},
-        {"time": "17:00", "title": "Example item C"},
-    ]
-
-    return templates.TemplateResponse(
-        "home.html",
-        {
-            "request": request,
-            "selected": selected.isoformat(),
-            "rows": sample_rows,
-            "tz": TZ,
-        },
-    )
-
-
-@app.get("/health", include_in_schema=False)
-def health():
-    return {"status": "ok"}
-
 
 @app.get("/db_ping", include_in_schema=True)
 def db_ping():
@@ -109,8 +56,8 @@ def db_ping():
 @app.post("/refresh", include_in_schema=True)
 def refresh_now():
     """
-    TEMP seeder so you can see rows on the page.
-    Replace later with your real collectors.
+    TEMP: seed one demo row so the UI shows something.
+    Replace with real collectors later.
     """
     now = datetime.now(tz=TZ)
     start = now.replace(hour=19, minute=0, second=0, microsecond=0)
@@ -149,5 +96,7 @@ def home(request: Request, day: str = Query(default="today")):
     """
     with eng.begin() as conn:
         rows = [dict(r._mapping) for r in conn.execute(text(q), {"ymd": selected.isoformat()})]
-    return templates.TemplateResponse("home.html",
-        {"request": request, "selected": selected.isoformat(), "rows": rows})
+    return templates.TemplateResponse(
+        "home.html",
+        {"request": request, "selected": selected.isoformat(), "rows": rows, "tz": TZ},
+    )
