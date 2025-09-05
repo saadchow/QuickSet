@@ -80,19 +80,70 @@ def db_ping():
         one = conn.execute(text("SELECT 1")).scalar()
     return {"ok": one == 1}
 
-@app.post("/refresh", include_in_schema=True)
-def refresh_now():
+# helper to run collectors without writing to DB
+def _run_refresh_debug():
+    from .refresh import load_facilities  # your loader
+    # try to import collectors; tolerate missing ones
     try:
-        inserted = run_refresh()  # your real scraper
-        return {"status": "ok", "inserted": inserted}
+        from .collectors.active_communities import collect_from_active
+    except Exception:
+        collect_from_active = None
+    try:
+        from .collectors.facility_pages import collect_from_dropin_page_async
+    except Exception:
+        collect_from_dropin_page_async = None
+
+    facs = load_facilities(os.getenv("PATHS__FACILITIES_FILE", "facilities.json"))
+    meta = {"active": 0, "facility_pages": 0}
+    rows = []
+
+    # A) Active listings (requests/bs4)
+    if collect_from_active:
+        for fac in facs:
+            try:
+                found = collect_from_active(fac, TZ)
+                meta["active"] += len(found)
+                rows.extend(found)
+            except Exception as e:
+                logging.exception("active parser failed for %s: %s", fac.get("facility_name","?"), e)
+
+    # B) Facility “Drop-in Programs” pages (Playwright)
+    if collect_from_dropin_page_async:
+        try:
+            import asyncio
+            async def go():
+                return await collect_from_dropin_page_async(facs, TZ)
+            found_b = asyncio.run(go()) or []
+            meta["facility_pages"] += len(found_b)
+            rows.extend(found_b)
+        except Exception as e:
+            logging.exception("facility pages parser failed: %s", e)
+
+    return rows, meta
+
+from .db import get_engine, insert_or_ignore
+
+@app.post("/refresh", include_in_schema=True)
+def refresh_now(dry_run: bool = Query(False)):
+    try:
+        rows, meta = _run_refresh_debug()
+        if dry_run:
+            # return a small preview without writing to DB
+            sample = rows[:5]
+            # make datetimes JSON-safe
+            for r in sample:
+                for k in ("start_datetime","end_datetime","last_seen"):
+                    if k in r and hasattr(r[k], "isoformat"):
+                        r[k] = r[k].isoformat()
+            return {"status":"ok", "found": len(rows), "by_source": meta, "sample": sample}
+
+        eng = get_engine()
+        inserted = insert_or_ignore(eng, rows)
+        return {"status":"ok", "found": len(rows), "inserted": inserted, "by_source": meta}
     except Exception as e:
-        logging.exception("Refresh failed")
+        logging.exception("refresh failed")
         tb = traceback.format_exc()
-        # return the important bits so we can diagnose from Swagger
-        raise HTTPException(
-            status_code=500,
-            detail={"type": e.__class__.__name__, "error": str(e), "trace": tb[-2000:]}
-        )
+        raise HTTPException(status_code=500, detail={"type": type(e).__name__, "error": str(e), "trace": tb[-1800:]})
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, day: str = Query(default="today")):
