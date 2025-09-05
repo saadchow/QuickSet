@@ -1,6 +1,7 @@
 from __future__ import annotations
+import os
 import logging
-from fastapi import FastAPI, Query, Response, status, Request
+from fastapi import FastAPI, Query, Response, status, Request, HTTPException, Header
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from typing import Optional
@@ -127,13 +128,17 @@ def get_dropins(
     return {"count": len(rows), "items": rows}
 
 @app.post("/refresh", status_code=200)
-def post_refresh():
+def post_refresh(x_refresh_token: str | None = Header(default=None)):
+    expected = os.getenv("REFRESH_TOKEN")  # set in your hosting env
+    if expected:
+        if not x_refresh_token or x_refresh_token != expected:
+            raise HTTPException(status_code=401, detail="Unauthorized")
     try:
         n = run_refresh()
         return {"status": "ok", "processed": n}
     except Exception as e:
         log.exception("Refresh failed: %s", e)
-        return Response(content=f"Refresh failed: {e}", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/ics")
 def get_ics(id: Optional[str] = Query(default=None, description="facility_id to export")):
