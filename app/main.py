@@ -33,6 +33,27 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 # Proper tzinfo object (NOT a plain string)
 TZ = ZoneInfo(os.getenv("APP__TORONTO_TZ", "America/Toronto"))
 
+@app.get("/count")
+def count_rows():
+    eng = get_engine()
+    with eng.begin() as c:
+        n = c.execute(text("SELECT COUNT(*) FROM dropins")).scalar()
+    return {"rows": int(n or 0)}
+
+@app.get("/recent")
+def recent(limit: int = 25):
+    eng = get_engine()
+    q = """
+    SELECT facility_name, program_name, start_datetime, end_datetime, address, fee_cad
+    FROM dropins
+    ORDER BY start_datetime DESC
+    LIMIT :lim
+    """
+    with eng.begin() as c:
+        rows = [dict(r._mapping) for r in c.execute(text(q), {"lim": limit})]
+    return {"rows": rows}
+
+
 def _resolve_day(day: str | None) -> date:
     day = (day or "today").lower().strip()
     today = date.today()
