@@ -7,23 +7,19 @@ from .db import get_engine, insert_or_ignore
 from .collectors.common import Facility
 from .collectors.active_communities import collect_from_active
 from .collectors.facility_pages import collect_from_dropin_page_async
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-def load_facilities(path: str) -> List[Facility]:
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    facilities: List[Facility] = []
-    for d in data:
-        facilities.append(Facility(
-            facility_id=d["facility_id"],
-            facility_name=d["facility_name"],
-            district=d.get("district", ""),
-            address=d.get("address", ""),
-            active_search_url=d.get("active_search_url"),
-            dropin_page_url=d.get("dropin_page_url"),
-        ))
-    return facilities
+def load_facilities(path: str):
+    p = Path(path)
+    if not p.is_absolute():
+        base = Path(__file__).resolve().parent.parent  # repo root relative to app/
+        p = (base / p).resolve()
+    if not p.exists():
+        raise FileNotFoundError(f"facilities.json not found at: {p}")
+    return json.loads(p.read_text(encoding="utf-8"))
+
 
 async def _run_async(facilities: List[Facility]) -> int:
     tz = ZoneInfo(settings.app.toronto_tz)
