@@ -58,4 +58,3 @@ docker run -p 8000:8000 -v $(pwd)/data:/app/data -e APP__DB_URL=sqlite:////app/d
 - Add a **Disk** (mount `/app/data`) and set `APP__DB_URL=sqlite:////app/data/data.sqlite3`.
 - Add a **Cron Job**: `30 2 * * *` → `python -m app.refresh` (Toronto time if available).
 
-MIT © 2025
