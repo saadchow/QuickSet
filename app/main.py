@@ -13,6 +13,12 @@ from fastapi.templating import Jinja2Templates
 
 from .db import get_engine, insert_or_ignore
 
+import traceback, logging
+from fastapi import HTTPException
+from .refresh import run_refresh
+
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+
 app = FastAPI(title="QuickSet")
 
 # Paths
@@ -55,8 +61,17 @@ def db_ping():
 
 @app.post("/refresh", include_in_schema=True)
 def refresh_now():
-    inserted = run_refresh()   # scrape -> normalize -> insert_or_ignore()
-    return {"status": "ok", "inserted": inserted}
+    try:
+        inserted = run_refresh()  # your real scraper
+        return {"status": "ok", "inserted": inserted}
+    except Exception as e:
+        logging.exception("Refresh failed")
+        tb = traceback.format_exc()
+        # return the important bits so we can diagnose from Swagger
+        raise HTTPException(
+            status_code=500,
+            detail={"type": e.__class__.__name__, "error": str(e), "trace": tb[-2000:]}
+        )
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, day: str = Query(default="today")):
