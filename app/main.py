@@ -20,11 +20,35 @@ STATIC_DIR = os.getenv("STATIC_DIR", "app/static")
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-templates = Jinja2Templates(directory=TEMPLATES_DIR)
+templates = Jinja2Templates(directory=os.getenv("TEMPLATES_DIR", "app/templates"))
 
 # Timezone (Render env var keys you showed)
 TZ = os.getenv("APP__TORONTO_TZ") or os.getenv("TZ") or "America/Toronto"
 
+def _resolve_day(day: str) -> date:
+    day = (day or "today").lower()
+    today = date.today()
+    if day in ("", "today"):
+        return today
+    if day == "tomorrow":
+        return today + timedelta(days=1)
+    return date.fromisoformat(day)
+
+@app.get("/health", include_in_schema=True)
+async def health():
+    return {"status": "ok"}
+
+@app.get("/__routes__", include_in_schema=True)
+def routes():
+    return [getattr(r, "path", None) for r in app.router.routes]
+
+@app.get("/", response_class=HTMLResponse)
+def home(request: Request, day: str = Query(default="today")):
+    selected = _resolve_day(day)
+    return templates.TemplateResponse(
+        "home.html",
+        {"request": request, "selected": selected.isoformat(), "rows": []},
+    )
 
 def _determine_day_param(day: str | None) -> date:
     """
