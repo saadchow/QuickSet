@@ -15,7 +15,7 @@ from .db import get_engine, insert_or_ignore
 
 import traceback, logging
 from fastapi import HTTPException
-from .refresh import run_refresh
+from .refresh import  run_refresh, load_facilities, Facility
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
@@ -126,24 +126,62 @@ from .db import get_engine, insert_or_ignore
 @app.post("/refresh", include_in_schema=True)
 def refresh_now(dry_run: bool = Query(False)):
     try:
-        rows, meta = _run_refresh_debug()
         if dry_run:
-            # return a small preview without writing to DB
-            sample = rows[:5]
-            # make datetimes JSON-safe
-            for r in sample:
+            # debug: run both collectors but do NOT write to DB
+            facs = load_facilities("facilities.json")
+            found_total = 0
+            by_source = {"active": 0, "facility_pages": 0}
+            rows_preview = []
+
+            # A) Active
+            try:
+                from .collectors.active_communities import collect_from_active
+                for fac in facs:
+                    r = collect_from_active(fac, TZ)
+                    by_source["active"] += len(r)
+                    found_total += len(r)
+                    rows_preview.extend(r[:1])  # grab a few
+            except Exception:
+                logging.exception("active debug failed")
+
+            # B) Facility pages
+            try:
+                from .collectors.facility_pages import collect_from_dropin_page_async
+                import asyncio
+                async def go():
+                    tasks = [collect_from_dropin_page_async(f, TZ) for f in facs if f.dropin_page_url]
+                    if not tasks:
+                        return []
+                    res = await asyncio.gather(*tasks, return_exceptions=True)
+                    out = []
+                    for rr in res:
+                        if isinstance(rr, Exception):
+                            logging.exception("facility debug task failed: %s", rr)
+                        else:
+                            out.extend(rr)
+                    return out
+                rows_b = asyncio.run(go())
+                by_source["facility_pages"] += len(rows_b)
+                found_total += len(rows_b)
+                rows_preview.extend(rows_b[:1])
+            except Exception:
+                logging.exception("facility pages debug failed")
+
+            # JSON-safe preview (datetimes → isoformat)
+            for r in rows_preview:
                 for k in ("start_datetime","end_datetime","last_seen"):
                     if k in r and hasattr(r[k], "isoformat"):
                         r[k] = r[k].isoformat()
-            return {"status":"ok", "found": len(rows), "by_source": meta, "sample": sample}
 
-        eng = get_engine()
-        inserted = insert_or_ignore(eng, rows)
-        return {"status":"ok", "found": len(rows), "inserted": inserted, "by_source": meta}
+            return {"status":"ok","found":found_total,"by_source":by_source,"sample":rows_preview[:5]}
+
+        # real insert
+        inserted = run_refresh()
+        return {"status":"ok","inserted":inserted}
     except Exception as e:
         logging.exception("refresh failed")
         tb = traceback.format_exc()
-        raise HTTPException(status_code=500, detail={"type": type(e).__name__, "error": str(e), "trace": tb[-1800:]})
+        raise HTTPException(status_code=500, detail={"type":type(e).__name__,"error":str(e),"trace":tb[-1800:]})
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, day: str = Query(default="today")):
