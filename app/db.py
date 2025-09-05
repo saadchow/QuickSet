@@ -1,3 +1,4 @@
+# app/db.py
 from __future__ import annotations
 import os
 from typing import Iterable, Dict, Any
@@ -7,7 +8,6 @@ from sqlalchemy.engine import Engine
 _engine: Engine | None = None
 
 def _normalize(url: str) -> str:
-    # ensure psycopg v3 URL + TLS for Neon
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
     if url.startswith("postgresql://") and "+psycopg" not in url:
@@ -52,6 +52,7 @@ def _init_schema(engine: Engine) -> None:
         c.execute(text(ddl))
 
 def insert_or_ignore(engine: Engine, rows: Iterable[Dict[str, Any]]) -> int:
+    rows = list(rows)  # safe for generators
     if not rows:
         return 0
     sql = """
@@ -66,7 +67,10 @@ def insert_or_ignore(engine: Engine, rows: Iterable[Dict[str, Any]]) -> int:
     )
     ON CONFLICT ON CONSTRAINT uq_dropin DO NOTHING
     """
+    inserted = 0
     with engine.begin() as c:
         for r in rows:
-            c.execute(text(sql), r)
-    return len(list(rows))
+            res = c.execute(text(sql), r)
+            # rowcount is 1 for inserted, 0 for conflict (Postgres)
+            inserted += (res.rowcount or 0)
+    return inserted
