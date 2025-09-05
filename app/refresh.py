@@ -1,55 +1,100 @@
+# app/refresh.py
 from __future__ import annotations
-import json, asyncio, logging
-from typing import List, Dict, Any
-from zoneinfo import ZoneInfo
-from .settings import settings
-from .db import get_engine, insert_or_ignore
-from .collectors.common import Facility
-from .collectors.active_communities import collect_from_active
-from .collectors.facility_pages import collect_from_dropin_page_async
+import json
+from dataclasses import dataclass
 from pathlib import Path
+from typing import List
+from zoneinfo import ZoneInfo
+from datetime import datetime
 
-log = logging.getLogger(__name__)
+from .db import get_engine, insert_or_ignore
 
-def load_facilities(path: str):
+@dataclass
+class Facility:
+    facility_id: str
+    facility_name: str
+    district: str = ""
+    address: str = ""
+    # names your collectors expect:
+    active_search_url: str | None = None
+    dropin_page_url: str | None = None
+
+def _resolve_path(path: str) -> Path:
     p = Path(path)
     if not p.is_absolute():
-        base = Path(__file__).resolve().parent.parent  # repo root relative to app/
+        # repo root relative to app/
+        base = Path(__file__).resolve().parent.parent
         p = (base / p).resolve()
-    if not p.exists():
-        raise FileNotFoundError(f"facilities.json not found at: {p}")
-    return json.loads(p.read_text(encoding="utf-8"))
+    return p
 
+def load_facilities(path: str = "facilities.json") -> List[Facility]:
+    p = _resolve_path(path)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    facs: List[Facility] = []
+    for d in data:
+        facs.append(
+            Facility(
+                facility_id=d["facility_id"],
+                facility_name=d["facility_name"],
+                district=d.get("district", ""),
+                address=d.get("address", ""),
+                # be flexible with possible alt keys in your JSON:
+                active_search_url=d.get("active_search_url") or d.get("active_url") or d.get("activeSearchUrl"),
+                dropin_page_url=d.get("dropin_page_url") or d.get("dropin_url") or d.get("dropinPageUrl"),
+            )
+        )
+    return facs
 
-async def _run_async(facilities: List[Facility]) -> int:
-    tz = ZoneInfo(settings.app.toronto_tz)
-    all_rows: List[Dict[str, Any]] = []
+# Optional: keep this function if you want a single entry point
+def run_refresh() -> int:
+    from .collectors.active_communities import collect_from_active
+    from .collectors.facility_pages import collect_from_dropin_page_async
+
+    tz = ZoneInfo("America/Toronto")
+    facilities = load_facilities("facilities.json")
+
+    all_rows = []
+
+    # A) Active Communities (sync)
     for fac in facilities:
         try:
-            rows_a = collect_from_active(fac, tz)
-            all_rows.extend(rows_a)
-        except Exception as e:
-            log.exception("Active search failed for %s: %s", fac.facility_name, e)
-        try:
-            rows_b = await collect_from_dropin_page_async(fac, tz)
-            seen = {(r["facility_id"], r["start_datetime"], r["program_name"]) for r in all_rows}
-            for r in rows_b:
-                k = (r["facility_id"], r["start_datetime"], r["program_name"])
-                if k not in seen:
-                    all_rows.append(r)
-        except Exception as e:
-            log.exception("Facility page failed for %s: %s", fac.facility_name, e)
+            rows = collect_from_active(fac, tz)
+            all_rows.extend(rows)
+        except Exception:
+            # don't crash entire run; collectors may fail for some centres
+            import logging; logging.exception("Active parse failed for %s", fac.facility_name)
 
-    engine = get_engine()
-    inserted = insert_or_ignore(engine, all_rows)
-    log.info("Inserted (or ignored) %d rows", inserted)
-    return inserted
+    # B) Facility “Drop-in Programs” pages (async, per-facility)
+    import asyncio
+    async def go():
+        from itertools import chain
+        tasks = []
+        for fac in facilities:
+            if not fac.dropin_page_url:
+                continue
+            tasks.append(collect_from_dropin_page_async(fac, tz))
+        if not tasks:
+            return []
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        rows = []
+        for r in results:
+            if isinstance(r, Exception):
+                import logging; logging.exception("Facility page task failed: %s", r)
+            elif r:
+                rows.extend(r)
+        return rows
 
-def run_refresh() -> int:
-    facilities = load_facilities(settings.paths.facilities_file)
-    return asyncio.run(_run_async(facilities))
+    try:
+        rows_b = asyncio.run(go())
+        # merge, avoiding duplicates (same unique key as DB)
+        seen = {(r["facility_id"], r["start_datetime"], r["program_name"]) for r in all_rows}
+        for r in rows_b:
+            key = (r["facility_id"], r["start_datetime"], r["program_name"])
+            if key not in seen:
+                all_rows.append(r)
+                seen.add(key)
+    except Exception:
+        import logging; logging.exception("Facility pages stage failed")
 
-if __name__ == "__main__":
-    logging.basicConfig(level=getattr(logging, settings.app.log_level.upper(), "INFO"))
-    n = run_refresh()
-    print(f"Refresh complete. Rows processed: {n}")
+    eng = get_engine()
+    return insert_or_ignore(eng, all_rows)
