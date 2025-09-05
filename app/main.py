@@ -55,33 +55,7 @@ def db_ping():
 
 @app.post("/refresh", include_in_schema=True)
 def refresh_now():
-    """
-    TEMP: seed one demo row so the UI shows something.
-    Replace with real collectors later.
-    """
-    now = datetime.now(tz=TZ)
-    start = now.replace(hour=19, minute=0, second=0, microsecond=0)
-    end   = now.replace(hour=21, minute=0, second=0, microsecond=0)
-
-    sample = [{
-        "facility_id": "demo-cc",
-        "facility_name": "Demo Community Centre",
-        "district": "Toronto & East York",
-        "address": "123 Example St, Toronto",
-        "program_name": "Volleyball Drop-in",
-        "age_min": 16,
-        "age_max": 99,
-        "weekday": start.weekday(),
-        "start_datetime": start,
-        "end_datetime": end,
-        "fee_cad": 3.5,
-        "reserve_required": False,
-        "source_url": "https://www.toronto.ca",
-        "last_seen": now,
-    }]
-
-    eng = get_engine()
-    inserted = insert_or_ignore(eng, sample)
+    inserted = run_refresh()   # scrape -> normalize -> insert_or_ignore()
     return {"status": "ok", "inserted": inserted}
 
 @app.get("/", response_class=HTMLResponse)
