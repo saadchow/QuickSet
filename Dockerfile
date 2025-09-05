@@ -11,7 +11,6 @@ WORKDIR /app
 
 # Install tzdata without prompts and set the zone
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata \
  && ln -fs /usr/share/zoneinfo/$TZ /etc/localtime \
  && dpkg-reconfigure -f noninteractive tzdata \
  && rm -rf /var/lib/apt/lists/*
