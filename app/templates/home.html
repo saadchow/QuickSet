@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Toronto Volleyball Drop-ins</title>
+    <style>
+      :root{ --bg:#0f172a; --card:#111827; --muted:#9ca3af; --fg:#e5e7eb; --accent:#60a5fa; }
+      body{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background:var(--bg); color:var(--fg); margin:0; }
+      header{ padding: 1.25rem 1rem; position:sticky; top:0; background:#0b1226; border-bottom:1px solid #1f2937; }
+      main{ max-width: 900px; margin: 1rem auto; padding: 0 1rem 2rem; }
+      h1{ margin:0; font-size:1.25rem; letter-spacing:.2px;}
+      form{ margin: 1rem 0; display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+      select,button{ background:#0f172a; color:var(--fg); border:1px solid #293040; padding:.6rem .8rem; border-radius:.75rem; }
+      button{ cursor:pointer; }
+      .grid{ display:grid; grid-template-columns: 1fr; gap: .75rem; }
+      .card{ border:1px solid #1f2937; background:var(--card); border-radius: .9rem; padding: .9rem; }
+      .title{ font-weight:600; }
+      .muted{ color:var(--muted); font-size:.9rem; }
+      .badges{ display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.35rem; }
+      .badge{ font-size:.8rem; border:1px solid #334155; padding:.2rem .5rem; border-radius:.6rem; color:#cbd5e1; text-decoration:none; }
+      .time{ font-weight:600; color:#f8fafc; }
+      footer{ color:var(--muted); font-size:.85rem; text-align:center; margin-top:1rem; }
+      .nores{ color:var(--muted); border:1px dashed #334155; padding:1rem; border-radius:.75rem; }
+      @media (min-width: 720px){ .grid{ grid-template-columns: 1fr 1fr; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Toronto Volleyball Drop-ins</h1>
+    </header>
+    <main>
+      <form method="get" action="/">
+        <label for="day" class="muted">Choose a day:</label>
+        <select id="day" name="day">
+          {% for d in days %}
+            <option value="{{ d.value }}" {% if d.value == selected_day %}selected{% endif %}>{{ d.label }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">Search</button>
+      </form>
+
+      {% if groups|length == 0 %}
+        <div class="nores">No volleyball drop-ins found for <strong>{{ selected_day_full }}</strong>. Try another day.</div>
+      {% else %}
+      <div class="grid">
+        {% for g in groups %}
+          <div class="card">
+            <div class="title">{{ g.facility_name }}</div>
+            <div class="muted">{{ g.address }} • {{ g.district }}</div>
+            <div class="badges">
+              <span class="badge">{{ selected_day_full }}</span>
+              {% if g.reserve_required %}<span class="badge">Reserve required</span>{% endif %}
+            </div>
+            <ul>
+              {% for e in g.entries %}
+                <li class="muted">
+                  <span class="time">{{ e.time_fmt }}</span> — {{ e.program_name }}
+                  {% if e.age_text %}<span class="badge">{{ e.age_text }}</span>{% endif %}
+                  {% if e.fee_cad is not none %}<span class="badge">${{ '%.2f'|format(e.fee_cad) }}</span>{% endif %}
+                  <a class="badge" href="{{ e.source_url }}" target="_blank" rel="noopener">Source</a>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <footer>Times shown in America/Toronto.</footer>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,13 @@
+# App configuration (override via env vars if desired)
+[app]
+db_url = "sqlite:///./data.sqlite3"
+toronto_tz = "America/Toronto"
+user_agent = "DropInBot/1.0 (+https://example.com)"
+request_timeout_seconds = 20
+polite_delay_seconds_min = 1.0
+polite_delay_seconds_max = 2.0
+log_level = "INFO"
+
+# Paths
+[paths]
+facilities_file = "./facilities.json"

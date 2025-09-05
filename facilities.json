@@ -1,0 +1,18 @@
+[
+  {
+    "facility_id": "scarb-centre",
+    "facility_name": "Scarborough Community Centre",
+    "district": "East",
+    "address": "123 Sample Rd, Toronto, ON",
+    "active_search_url": "https://www.toronto.ca/active/search?facility=Scarborough%20Community%20Centre&activity=Volleyball",
+    "dropin_page_url": "https://www.toronto.ca/explore-enjoy/recreation/community-centres/scarborough-community-centre/#dropin"
+  },
+  {
+    "facility_id": "trinity-rec",
+    "facility_name": "Trinity Recreation Centre",
+    "district": "South",
+    "address": "456 Placeholder St, Toronto, ON",
+    "active_search_url": "https://www.toronto.ca/active/search?facility=Trinity%20Recreation%20Centre&activity=Volleyball",
+    "dropin_page_url": "https://www.toronto.ca/explore-enjoy/recreation/community-centres/trinity-recreation-centre/#dropin"
+  }
+]
