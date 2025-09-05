@@ -1,67 +1,72 @@
 # app/main.py
-from datetime import datetime, timedelta
-from typing import Optional
+from __future__ import annotations
 
-from fastapi import FastAPI, Response, Query
+import os
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from app.db import get_engine
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
-try:
-    from app.config import settings  # type: ignore
-    TORONTO_TZ = getattr(getattr(settings, "app", settings), "toronto_tz", "America/Toronto")
-except Exception:  # pragma: no cover
-    TORONTO_TZ = "America/Toronto"
+app = FastAPI(title="QuickSet")
 
-app = FastAPI()
+# Directories (override via env if you want)
+TEMPLATES_DIR = os.getenv("TEMPLATES_DIR", "app/templates")
+STATIC_DIR = os.getenv("STATIC_DIR", "app/static")
+
+# Mount /static if the folder exists (optional)
+if os.path.isdir(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+# Timezone (Render env var keys you showed)
+TZ = os.getenv("APP__TORONTO_TZ") or os.getenv("TZ") or "America/Toronto"
 
 
-# --- Health / probe endpoints (prevents 405 on Render’s HEAD check) ---
-@app.head("/", include_in_schema=False)
-def head_root() -> Response:
-    # empty 204 keeps it cheap and avoids JSON work on probes
-    return Response(status_code=204)
-
-
-@app.get("/", include_in_schema=False)
-def homepage(day: Optional[str] = Query(default=None, description="today|tomorrow|yesterday or YYYY-MM-DD")):
+def _determine_day_param(day: str | None) -> date:
     """
-    Keep your existing homepage logic here.
-    We ensure the DB engine is constructed with psycopg3 and that zoneinfo is available.
+    Accepts: today | tomorrow | yesterday | YYYY-MM-DD
+    Defaults to 'today' if invalid or missing.
     """
+    day = (day or "today").lower()
+    now = datetime.now(ZoneInfo(TZ)).date()
+    if day == "today":
+        return now
+    if day == "tomorrow":
+        return date.fromordinal(now.toordinal() + 1)
+    if day == "yesterday":
+        return date.fromordinal(now.toordinal() - 1)
+    try:
+        return date.fromisoformat(day)
+    except ValueError:
+        return now
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def homepage(request: Request, day: str | None = Query(default=None)):
     selected = _determine_day_param(day)
 
-    # Touch the engine so a misconfigured driver fails fast during startup
-    _ = get_engine()
+    # TODO: Replace with your real data (DB/query/etc.)
+    sample_rows = [
+        {"time": "09:00", "title": "Example item A"},
+        {"time": "13:30", "title": "Example item B"},
+        {"time": "17:00", "title": "Example item C"},
+    ]
 
-    # TODO: Replace the return below with your original response
-    # (template rendering / JSON / redirect). This stub ensures a 200 OK.
-    return {"status": "ok", "selected": selected}
+    return templates.TemplateResponse(
+        "home.html",
+        {
+            "request": request,
+            "selected": selected.isoformat(),
+            "rows": sample_rows,
+            "tz": TZ,
+        },
+    )
 
 
-# --- Helpers -------------------------------------------------------------
-def _determine_day_param(day: Optional[str]) -> str:
-    """
-    Interprets `day` relative to Toronto time. Supports today|tomorrow|yesterday
-    plus 'YYYY-MM-DD'. Falls back to 'today'.
-    """
-    tz = ZoneInfo(TORONTO_TZ)
-    now = datetime.now(tz=tz).date()
-
-    if not day:
-        return "today"
-
-    lower = day.lower()
-    if lower == "today":
-        return "today"
-    if lower == "tomorrow":
-        return (now + timedelta(days=1)).isoformat()
-    if lower == "yesterday":
-        return (now - timedelta(days=1)).isoformat()
-
-    # Try ISO date
-    try:
-        _ = datetime.fromisoformat(day).date()
-        return day  # valid ISO date string
-    except Exception:
-        return "today"
+@app.get("/health", include_in_schema=False)
+def health():
+    return {"status": "ok"}
